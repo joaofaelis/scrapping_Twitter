@@ -1,7 +1,6 @@
 import os
 import time
-import pytesseract
-from PIL import Image
+import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -10,24 +9,24 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
-# Configuração do Chrome
+# **Configuração do Chrome**
 options = webdriver.ChromeOptions()
-# options.add_argument("--headless")  # Remova para ver o navegador
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
+options.add_argument("start-maximized")
 
-# Inicializa o Selenium
+# **Inicializa o Selenium**
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+driver.set_window_size(1280, 900)
 
-
-# Função para login automático
-def login_twitter(email, senha):
+# **Login automático no Twitter**
+def login_twitter(usuario, senha):
     driver.get("https://twitter.com/login")
     time.sleep(5)
 
-    email_input = driver.find_element(By.NAME, "text")
-    email_input.send_keys(email)
-    email_input.send_keys(Keys.ENTER)
+    user_input = driver.find_element(By.NAME, "text")
+    user_input.send_keys(usuario)
+    user_input.send_keys(Keys.ENTER)
     time.sleep(3)
 
     senha_input = driver.find_element(By.NAME, "password")
@@ -35,54 +34,131 @@ def login_twitter(email, senha):
     senha_input.send_keys(Keys.ENTER)
     time.sleep(5)
 
+# **Ativar modo claro no Twitter**
+def ativar_modo_claro():
+    driver.get("https://twitter.com/i/display")
+    time.sleep(3)
 
-# Função para capturar tweets
-def capturar_tweets(palavra_chave, quantidade=5):
-    pasta = f"tweets_{palavra_chave.replace(' ', '_')}"
-    os.makedirs(pasta, exist_ok=True)
+    try:
+        light_mode_button = driver.find_element(By.XPATH, "//span[text()='Default']")
+        light_mode_button.click()
+        time.sleep(1)
+        print("✅ Modo claro ativado no Twitter!")
+    except:
+        print("⚠️ O Twitter já está no modo claro ou o botão não foi encontrado.")
 
-    url = f"https://twitter.com/search?q={palavra_chave}&src=typed_query"
-    driver.get(url)
-    time.sleep(5)
+# **Captura tweets com extração via XPATH**
+def capturar_tweets(palavras_chave, quantidade=100):
+    for palavra_chave in palavras_chave:
+        print(f"\n🔍 Buscando tweets para: {palavra_chave}")
 
-    # Rolar a página para carregar mais tweets
-    body = driver.find_element(By.TAG_NAME, "body")
-    for _ in range(5):  # Aumentei a rolagem
-        body.send_keys(Keys.PAGE_DOWN)
-        time.sleep(3)
+        pasta = f"tweets_{palavra_chave.replace(' ', '_')}"
+        os.makedirs(pasta, exist_ok=True)
 
-    # Espera explícita aumentada para 20s
-    WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, '//article[@data-testid="tweet"]')))
+        url = f"https://twitter.com/search?q={palavra_chave}&src=typed_query"
+        driver.get(url)
+        time.sleep(5)
 
-    # Tenta encontrar tweets
-    tweets = driver.find_elements(By.XPATH, '//article[@data-testid="tweet"]')
+        # **Criar DataFrame para o tema atual**
+        df_tweets = pd.DataFrame(columns=["ID", "Tweet", "Data", "Tema"])
 
-    print(f"Encontrados {len(tweets)} tweets")
-
-    for i, tweet in enumerate(tweets[:quantidade]):
         try:
-            screenshot_path = f"{pasta}/tweet_{i + 1}.png"
-            tweet.screenshot(screenshot_path)
-            print(f"Print salvo: {screenshot_path}")
+            WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, '//article[@data-testid="tweet"]')))
+        except:
+            print(f"⚠️ Nenhum tweet encontrado para '{palavra_chave}'. Pulando para a próxima pesquisa.")
+            continue  # Pular para o próximo termo
 
-            # Extração de texto com OCR
-            texto_extraido = pytesseract.image_to_string(Image.open(screenshot_path))
-            with open(f"{pasta}/tweet_{i + 1}.txt", "w", encoding="utf-8") as f:
-                f.write(texto_extraido)
+        body = driver.find_element(By.TAG_NAME, "body")
+        tweets_capturados = set()
+        tentativas_sem_novos_tweets = 0
 
-            print(f"Texto extraído salvo: {pasta}/tweet_{i + 1}.txt")
+        print(f"⏳ Carregando tweets para: {palavra_chave}")
 
-        except Exception as e:
-            print(f"Erro ao capturar tweet {i + 1}: {e}")
+        while len(tweets_capturados) < quantidade:
+            tweets = driver.find_elements(By.XPATH, '//article[@data-testid="tweet"]')
+            novos_tweets_encontrados = False
 
-    print("Captura concluída!")
+            for tweet in tweets:
+                try:
+                    WebDriverWait(driver, 5).until(EC.visibility_of(tweet))
+                    tweet_id = tweet.get_attribute("data-item-id") or tweet.text[:30]
+                    if tweet_id not in tweets_capturados:
+                        tweets_capturados.add(tweet_id)
+                        novos_tweets_encontrados = True
 
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", tweet)
+                        time.sleep(1)
 
-# **LOGIN AUTOMÁTICO NO TWITTER**
-login_twitter("@oFaelis", "Jgames780@")
+                        altura_tweet = tweet.size["height"]
+                        altura_ajustada = max(900, altura_tweet + 150)
+                        driver.set_window_size(1280, altura_ajustada)
 
-# **CAPTURA OS TWEETS**
-capturar_tweets("Inteligência Artificial", quantidade=5)
+                        screenshot_path = f"{pasta}/tweet_{len(tweets_capturados)}.png"
+                        tweet.screenshot(screenshot_path)
+                        print(f"📸 Print salvo: {screenshot_path}")
 
-# Fechar o navegador
-driver.quit()
+                        try:
+                            # **Extraindo o texto do tweet via XPATH**
+                            texto_extraido = tweet.find_element(By.XPATH, ".//div[@data-testid='tweetText']").text.strip()
+                        except Exception as e:
+                            texto_extraido = "Erro ao extrair texto via XPATH"
+                            print(f"⚠️ Erro ao extrair texto do tweet: {e}")
+
+                        try:
+                            data_element = tweet.find_element(By.XPATH, ".//time")
+                            data_tweet = data_element.get_attribute("datetime").split("T")[0]
+                        except:
+                            data_tweet = "Desconhecida"
+
+                        novo_tweet = pd.DataFrame({
+                            "ID": [f"tweet_{len(tweets_capturados)}"],
+                            "Tweet": [texto_extraido],
+                            "Data": [data_tweet],
+                            "Tema": [palavra_chave]
+                        })
+                        df_tweets = pd.concat([df_tweets, novo_tweet], ignore_index=True)
+
+                        print(f"📝 Tweet salvo - ID: {len(tweets_capturados)}")
+
+                        if len(tweets_capturados) >= quantidade:
+                            print(f"✅ {quantidade} tweets coletados para '{palavra_chave}'!")
+                            break
+                except Exception as e:
+                    print(f"⚠️ Erro ao capturar tweet: {e}")
+
+            if not novos_tweets_encontrados:
+                tentativas_sem_novos_tweets += 1
+                if tentativas_sem_novos_tweets >= 5:
+                    print(f"⚠️ Nenhum novo tweet encontrado para '{palavra_chave}', encerrando captura.")
+                    break
+
+            body.send_keys(Keys.PAGE_DOWN)
+            time.sleep(5)  # 🔄 Pausa maior para evitar bloqueios do Twitter
+
+        # **Salvar os tweets em um arquivo Excel para este tema**
+        nome_arquivo = f"tweets_{palavra_chave.replace(' ', '_')}.xlsx"
+        df_tweets.to_excel(nome_arquivo, index=False)
+        print(f"📂 Arquivo '{nome_arquivo}' criado com sucesso!")
+
+        print(f"✅ Captura concluída para: {palavra_chave} - Total: {len(tweets_capturados)} tweets\n")
+        time.sleep(10)  # Pausa maior entre buscas
+
+# **Execução do Script**
+try:
+    login_twitter("@oFaelis", "Jgames780@")
+    ativar_modo_claro()
+
+    # **LISTA DE PALAVRAS PARA PESQUISAR**
+    palavras = ["Vi no cinema", "cinema", "estava no cinema", "fui no cinema", "vou no cinema", "no cinema",
+                "ia no cinema", "experiencia no cinema", "cinemark", "cinepolis", "playarte", "kinoplex",
+                "UCI", "cinesystem", "espaço itau", "ao cinema"]
+
+    # **CAPTURA OS TWEETS PARA TODAS AS PALAVRAS**
+    capturar_tweets(palavras, quantidade=100)
+
+except Exception as e:
+    print(f"🚨 ERRO GERAL: {e}")
+
+finally:
+    driver.quit()  # Fechar navegador mesmo em caso de erro
+    print("🛑 Navegador fechado.")
