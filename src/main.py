@@ -19,6 +19,7 @@ options.add_argument("start-maximized")
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 driver.set_window_size(1280, 900)
 
+
 # **Login automático no Twitter**
 def login_twitter(usuario, senha):
     driver.get("https://twitter.com/login")
@@ -34,6 +35,7 @@ def login_twitter(usuario, senha):
     senha_input.send_keys(Keys.ENTER)
     time.sleep(5)
 
+
 # **Ativar modo claro no Twitter**
 def ativar_modo_claro():
     driver.get("https://twitter.com/i/display")
@@ -47,6 +49,7 @@ def ativar_modo_claro():
     except:
         print("⚠️ O Twitter já está no modo claro ou o botão não foi encontrado.")
 
+
 # **Captura tweets com extração via XPATH**
 def capturar_tweets(palavras_chave, quantidade=100):
     for palavra_chave in palavras_chave:
@@ -59,11 +62,12 @@ def capturar_tweets(palavras_chave, quantidade=100):
         driver.get(url)
         time.sleep(5)
 
-        # **Criar DataFrame para o tema atual**
-        df_tweets = pd.DataFrame(columns=["ID", "Tweet", "Data", "Tema"])
+        # **Criar DataFrame com a nova coluna "Link"**
+        df_tweets = pd.DataFrame(columns=["ID", "Tweet", "Data", "Tema", "Link"])
 
         try:
-            WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, '//article[@data-testid="tweet"]')))
+            WebDriverWait(driver, 20).until(
+                EC.presence_of_element_located((By.XPATH, '//article[@data-testid="tweet"]')))
         except:
             print(f"⚠️ Nenhum tweet encontrado para '{palavra_chave}'. Pulando para a próxima pesquisa.")
             continue  # Pular para o próximo termo
@@ -81,7 +85,12 @@ def capturar_tweets(palavras_chave, quantidade=100):
             for tweet in tweets:
                 try:
                     WebDriverWait(driver, 5).until(EC.visibility_of(tweet))
-                    tweet_id = tweet.get_attribute("data-item-id") or tweet.text[:30]
+
+                    # **Extrair o ID do tweet e gerar o link**
+                    link_element = tweet.find_element(By.XPATH, ".//a[contains(@href, '/status/')]")
+                    tweet_link = link_element.get_attribute("href")
+
+                    tweet_id = tweet_link.split("/")[-1]  # Extrai o ID do link
                     if tweet_id not in tweets_capturados:
                         tweets_capturados.add(tweet_id)
                         novos_tweets_encontrados = True
@@ -99,7 +108,8 @@ def capturar_tweets(palavras_chave, quantidade=100):
 
                         try:
                             # **Extraindo o texto do tweet via XPATH**
-                            texto_extraido = tweet.find_element(By.XPATH, ".//div[@data-testid='tweetText']").text.strip()
+                            texto_extraido = tweet.find_element(By.XPATH,
+                                                                ".//div[@data-testid='tweetText']").text.strip()
                         except Exception as e:
                             texto_extraido = "Erro ao extrair texto via XPATH"
                             print(f"⚠️ Erro ao extrair texto do tweet: {e}")
@@ -114,11 +124,12 @@ def capturar_tweets(palavras_chave, quantidade=100):
                             "ID": [f"tweet_{len(tweets_capturados)}"],
                             "Tweet": [texto_extraido],
                             "Data": [data_tweet],
-                            "Tema": [palavra_chave]
+                            "Tema": [palavra_chave],
+                            "Link": [tweet_link]  # **Adicionando o link do tweet**
                         })
                         df_tweets = pd.concat([df_tweets, novo_tweet], ignore_index=True)
 
-                        print(f"📝 Tweet salvo - ID: {len(tweets_capturados)}")
+                        print(f"📝 Tweet salvo - ID: {len(tweets_capturados)} - Link: {tweet_link}")
 
                         if len(tweets_capturados) >= quantidade:
                             print(f"✅ {quantidade} tweets coletados para '{palavra_chave}'!")
@@ -143,18 +154,17 @@ def capturar_tweets(palavras_chave, quantidade=100):
         print(f"✅ Captura concluída para: {palavra_chave} - Total: {len(tweets_capturados)} tweets\n")
         time.sleep(10)  # Pausa maior entre buscas
 
+
 # **Execução do Script**
 try:
     login_twitter("@oFaelis", "Jgames780@")
     ativar_modo_claro()
 
     # **LISTA DE PALAVRAS PARA PESQUISAR**
-    palavras = ["Vi no cinema", "cinema", "estava no cinema", "fui no cinema", "vou no cinema", "no cinema",
-                "ia no cinema", "experiencia no cinema", "cinemark", "cinepolis", "playarte", "kinoplex",
-                "UCI", "cinesystem", "espaço itau", "ao cinema"]
+    palavras = ["bieber"]
 
     # **CAPTURA OS TWEETS PARA TODAS AS PALAVRAS**
-    capturar_tweets(palavras, quantidade=100)
+    capturar_tweets(palavras, quantidade=10)
 
 except Exception as e:
     print(f"🚨 ERRO GERAL: {e}")
@@ -162,3 +172,6 @@ except Exception as e:
 finally:
     driver.quit()  # Fechar navegador mesmo em caso de erro
     print("🛑 Navegador fechado.")
+
+#Facebook
+
